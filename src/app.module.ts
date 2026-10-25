@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
 import { UsersModule } from './users/users.module';
 import { SourcesModule } from './sources/sources.module';
 import { MetricsModule } from './metrics/metrics.module';
@@ -23,6 +24,15 @@ import { AuthModule } from './auth/auth.module';
         database: config.getOrThrow<string>('DB_NAME'),
         autoLoadEntities: true,
         synchronize: true, // DEV ONLY, replaced by migrations later
+      }),
+    }),
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => ({
+        connection: {
+          host: config.getOrThrow<string>('REDIS_HOST'),
+          port: Number(config.getOrThrow<string>('REDIS_PORT')),
+        },
       }),
     }),
     UsersModule,
