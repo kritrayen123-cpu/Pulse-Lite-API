@@ -31,9 +31,11 @@ export class RuleEngineService {
       if (values.length < rule.consecutiveReadings) continue;
 
       if (isBreached(rule.operator, rule.threshold, values)) {
+        // `values` are the readings that broke the rule, newest first
         const incident = await this.incidentsService.openIfNone(
           sourceId,
           rule.id,
+          values,
         );
         if (incident) {
           this.logger.warn(

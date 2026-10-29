@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Not, Repository } from 'typeorm';
 import { Incident } from './incidents.entity';
 import { IncidentStatus } from './incident-status.enum';
+import { AiStatus } from './ai-status.enum';
 import { QueryIncidentsDto } from './dto/query-incidents.dto';
 
 @Injectable()
@@ -22,13 +23,17 @@ export class IncidentsService {
         ...(query.sourceId ? { sourceId: query.sourceId } : {}),
         ...(query.status ? { status: query.status } : {}),
       },
+      relations: { source: true, rule: true },
       order: { openedAt: 'DESC' },
       take: 100,
     });
   }
 
   async getByIdOrFail(id: string): Promise<Incident> {
-    const incident = await this.incidentsRepo.findOne({ where: { id } });
+    const incident = await this.incidentsRepo.findOne({
+      where: { id },
+      relations: { source: true, rule: true },
+    });
     if (!incident) throw new NotFoundException('Incident not found');
     return incident;
   }
@@ -53,10 +58,12 @@ export class IncidentsService {
     return this.incidentsRepo.save(incident);
   }
 
-  // used by the rule engine: opens an incident unless this rule already has one
+  // used by the rule engine: opens an incident unless this rule already has one.
+  // triggerValues = the readings that broke the rule, newest first.
   async openIfNone(
     sourceId: string,
     ruleId: string,
+    triggerValues: number[] | null = null,
   ): Promise<Incident | null> {
     const existing = await this.incidentsRepo.findOne({
       where: { ruleId, status: Not(IncidentStatus.RESOLVED) },
@@ -65,7 +72,7 @@ export class IncidentsService {
 
     try {
       return await this.incidentsRepo.save(
-        this.incidentsRepo.create({ sourceId, ruleId }),
+        this.incidentsRepo.create({ sourceId, ruleId, triggerValues }),
       );
     } catch (err) {
       // two requests raced: the database unique index let only one through
@@ -81,6 +88,24 @@ export class IncidentsService {
       { status: IncidentStatus.RESOLVED, resolvedAt: new Date() },
     );
     return result.affected ?? 0;
+  }
+
+  // used by the AI worker: store the explanation
+  async saveAiSummary(
+    id: string,
+    summary: string,
+    engine: string,
+  ): Promise<void> {
+    await this.incidentsRepo.update(id, {
+      aiSummary: summary,
+      aiEngine: engine,
+      aiStatus: AiStatus.DONE,
+    });
+  }
+
+  // used by the AI worker after the LAST failed attempt
+  async markAiFailed(id: string): Promise<void> {
+    await this.incidentsRepo.update(id, { aiStatus: AiStatus.FAILED });
   }
 }
 
